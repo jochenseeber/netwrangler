@@ -1,0 +1,16 @@
+---
+environments:
+  default: {}
+  kind:
+    values:
+      - ./values/kind.yaml
+---
+releases:
+  - name: netwrangler
+    namespace: netwrangler
+    createNamespace: true
+    chart: ./charts/netwrangler
+    {{- if eq .Environment.Name "kind" }}
+    values:
+      - ./values/kind.yaml
+    {{- end }}

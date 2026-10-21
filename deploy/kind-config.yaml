@@ -1,0 +1,10 @@
+---
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  kubeProxyMode: nftables
+  serviceSubnet: "10.194.0.0/16"
+nodes:
+  - role: control-plane
+  - role: worker
+  - role: worker

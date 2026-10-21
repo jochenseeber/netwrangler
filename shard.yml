@@ -1,0 +1,29 @@
+name: netwrangler
+version: 1.0.0-dev
+
+authors:
+  - Jochen Seeber <jochen@seeber.me>
+
+description: |
+  Virtual IP controller for shell-operator to update routing and nftables for virtual IPs
+
+crystal: ">= 1.21.0, < 1.22"
+
+targets:
+  netwrangler-controller:
+    main: src/netwrangler_controller.cr
+
+  netwrangler-agent:
+    main: src/netwrangler_agent.cr
+
+development_dependencies:
+  ameba:
+    # No *released* ameba compiles against Crystal 1.21 yet (1.6.4 still
+    # calls the removed `Crystal::Lexer#next_string_array_token`), so this
+    # pins the exact master commit the project was linted with instead of the
+    # floating branch — same reproducibility a release pin would buy. Bump
+    # to a `version:` constraint once a 1.21-compatible release exists.
+    github: crystal-ameba/ameba
+    commit: cdd58b34b0d8a9c785d67183a7a8f07541549e55
+
+license: MIT

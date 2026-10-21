@@ -1,0 +1,68 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: vipnetworks.netwrangler.dev
+spec:
+  group: netwrangler.dev
+  names:
+    kind: VipNetwork
+    listKind: VipNetworkList
+    plural: vipnetworks
+    singular: vipnetwork
+    shortNames:
+      - vn
+  scope: Cluster
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required:
+                - interface
+                - gatewayIP
+                - networkCIDR
+              properties:
+                interface:
+                  type: string
+                  description: Network interface name for the load balancer (e.g. eth0)
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Value is immutable
+                gatewayIP:
+                  type: string
+                  description: Gateway address for routing
+                  pattern: '^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
+                networkCIDR:
+                  type: string
+                  description: Network in CIDR notation (e.g., 10.0.1.0/24)
+                  pattern: '^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)/([0-9]|[12][0-9]|3[0-2])$'
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Value is immutable
+                sourceCIDRs:
+                  type: array
+                  description: Additional source networks in CIDR notation that create extra entries in ingress/egress verdict maps
+                  items:
+                    type: string
+                    pattern: '^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)/([0-9]|[12][0-9]|3[0-2])$'
+      additionalPrinterColumns:
+        - name: Interface
+          type: string
+          description: Network interface name
+          jsonPath: .spec.interface
+        - name: Network
+          type: string
+          description: Network CIDR
+          jsonPath: .spec.networkCIDR
+        - name: Gateway
+          type: string
+          description: Gateway address
+          jsonPath: .spec.gatewayIP
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp

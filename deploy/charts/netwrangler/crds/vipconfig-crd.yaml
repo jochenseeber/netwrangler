@@ -1,0 +1,90 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: vipconfigs.netwrangler.dev
+spec:
+  group: netwrangler.dev
+  names:
+    kind: VipConfig
+    listKind: VipConfigList
+    plural: vipconfigs
+    singular: vipconfig
+    shortNames:
+      - vc
+  scope: Cluster
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required:
+                - firewallMark
+                - firewallMarkMask
+                - routeTable
+                - routingPriority
+                - maxAddressCount
+              properties:
+                maxAddressCount:
+                  type: integer
+                  description: Maximum number of virtual IPs supported
+                  minimum: 1
+                firewallMark:
+                  type: integer
+                  description: Base firewall mark value for per-IP allocation
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Value is immutable
+                firewallMarkMask:
+                  type: integer
+                  description: Bitmask determining which firewall mark bits are used
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Value is immutable
+                routeTable:
+                  type: integer
+                  description: Base route table ID for per-IP allocation
+                  minimum: 1
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Value is immutable
+                routingPriority:
+                  type: integer
+                  description: Base routing policy rule priority for per-IP allocation
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Value is immutable
+                clusterCIDRs:
+                  type: array
+                  description: Cluster-internal network CIDRs that should not be marked
+                  items:
+                    type: string
+                    pattern: '^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)/([0-9]|[12][0-9]|3[0-2])$'
+      additionalPrinterColumns:
+        - name: Size
+          type: integer
+          description: Maximum number of virtual IPs
+          jsonPath: .spec.maxAddressCount
+        - name: FWMark
+          type: integer
+          description: Base firewall mark
+          jsonPath: .spec.firewallMark
+        - name: FWMask
+          type: integer
+          description: Firewall mark mask
+          jsonPath: .spec.firewallMarkMask
+        - name: Table
+          type: integer
+          description: Base route table ID
+          jsonPath: .spec.routeTable
+        - name: Priority
+          type: integer
+          description: Base routing policy rule priority
+          jsonPath: .spec.routingPriority
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp

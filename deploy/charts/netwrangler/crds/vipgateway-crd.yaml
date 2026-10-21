@@ -1,0 +1,74 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+    name: vipgateways.netwrangler.dev
+spec:
+    group: netwrangler.dev
+    names:
+        kind: VipGateway
+        listKind: VipGatewayList
+        plural: vipgateways
+        singular: vipgateway
+        shortNames:
+            - vg
+    scope: Cluster
+    versions:
+        - name: v1
+          served: true
+          storage: true
+          schema:
+              openAPIV3Schema:
+                  type: object
+                  properties:
+                      spec:
+                          type: object
+                          required:
+                              - destinationCIDR
+                              - podSelector
+                              - routeTable
+                              - routingPriority
+                          properties:
+                              destinationCIDR:
+                                  type: string
+                                  description: Destination network in CIDR notation (e.g., 10.0.0.0/8)
+                                  pattern: '^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)/([0-9]|[12][0-9]|3[0-2])$'
+                              routeTable:
+                                  type: integer
+                                  format: int32
+                                  minimum: 1
+                                  description: Linux routing table number
+                                  x-kubernetes-validations:
+                                      - rule: self == oldSelf
+                                        message: Value is immutable
+                              routingPriority:
+                                  type: integer
+                                  format: int32
+                                  minimum: 1
+                                  description: Routing policy rule priority
+                              podSelector:
+                                  type: object
+                                  description: Label selector for gateway Pods
+                                  required:
+                                      - matchLabels
+                                  properties:
+                                      matchLabels:
+                                          type: object
+                                          description: Labels that gateway Pods must match
+                                          additionalProperties:
+                                              type: string
+          additionalPrinterColumns:
+              - name: Destination
+                type: string
+                description: Destination network CIDR
+                jsonPath: .spec.destinationCIDR
+              - name: Table
+                type: integer
+                description: Routing table number
+                jsonPath: .spec.routeTable
+              - name: Priority
+                type: integer
+                description: Routing policy rule priority
+                jsonPath: .spec.routingPriority
+              - name: Age
+                type: date
+                jsonPath: .metadata.creationTimestamp

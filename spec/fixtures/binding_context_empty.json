@@ -1,0 +1,11 @@
+[
+  {
+    "binding": "vip_address_controller",
+    "snapshots": {
+      "services": [],
+      "endpoint_slices": [],
+      "vip_networks": [],
+      "vip_addresses": []
+    }
+  }
+]

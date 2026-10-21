@@ -1,0 +1,13 @@
+---
+# Kind-specific values
+
+controller:
+  debug: true
+  logLevel: debug
+  image:
+    pullPolicy: Never
+
+agent:
+  debug: true
+  image:
+    pullPolicy: Never

@@ -1,0 +1,91 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: viproutes.netwrangler.dev
+spec:
+  group: netwrangler.dev
+  names:
+    kind: VipRoute
+    listKind: VipRouteList
+    plural: viproutes
+    singular: viproute
+    shortNames:
+      - vr
+  scope: Namespaced
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required:
+                - destinationCIDR
+                - gatewayNode
+                - podIP
+                - routeTable
+                - routingPriority
+              properties:
+                destinationCIDR:
+                  type: string
+                  description: Destination in CIDR notation (e.g., 10.0.0.0/8)
+                  pattern: '^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)/([0-9]|[12][0-9]|3[0-2])$'
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Value is immutable
+                gatewayNode:
+                  type: string
+                  description: Node where the gateway pod runs
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Value is immutable
+                podIP:
+                  type: string
+                  description: Pod IP address of the gateway pod
+                  pattern: '^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Value is immutable
+                routeTable:
+                  type: integer
+                  format: int32
+                  minimum: 1
+                  description: Linux routing table number
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Value is immutable
+                routingPriority:
+                  type: integer
+                  format: int32
+                  minimum: 1
+                  description: Routing policy rule priority
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Value is immutable
+      additionalPrinterColumns:
+        - name: Destination
+          type: string
+          description: Destination network CIDR
+          jsonPath: .spec.destinationCIDR
+        - name: Gateway Node
+          type: string
+          description: Node where the gateway pod runs
+          jsonPath: .spec.gatewayNode
+        - name: Pod IP
+          type: string
+          description: Pod IP address
+          jsonPath: .spec.podIP
+        - name: Table
+          type: integer
+          description: Routing table number
+          jsonPath: .spec.routeTable
+        - name: Priority
+          type: integer
+          description: Routing policy rule priority
+          jsonPath: .spec.routingPriority
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp

@@ -1,0 +1,106 @@
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+controller:
+  replicaCount: 1
+  debug: false
+  logLevel: info
+  image:
+    repository: jochen/netwrangler-controller
+    pullPolicy: IfNotPresent
+    tag: ""
+  securityContext:
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 1000
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 10m
+      memory: 64Mi
+  nodeSelector:
+    kubernetes.io/os: linux
+    node-role.kubernetes.io/control-plane: ""
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: kubernetes.io/arch
+                operator: In
+                values:
+                  - amd64
+                  - arm64
+
+agent:
+  enabled: true
+  debug: false
+  # The agent's own account, bound to a ClusterRole that can only read the
+  # netwrangler resources
+  serviceAccount:
+    create: true
+    automount: true
+    annotations: {}
+    name: ""
+  # How often an external tool (nft, ip, wg, arping) is attempted before the
+  # agent gives up and stops the container so the kubelet restarts the pod.
+  retry:
+    count: 3
+    delaySeconds: 2
+  # The bundled nft build to run (e.g. `1.1.3`), to match the nft a host runs.
+  # Empty runs the latest bundled build.
+  nftVersion: ""
+  image:
+    repository: jochen/netwrangler-agent
+    pullPolicy: IfNotPresent
+    tag: ""
+  securityContext:
+    capabilities:
+      add:
+        - NET_ADMIN
+        - NET_RAW
+      drop:
+        - ALL
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 1000
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 10m
+      memory: 64Mi
+  nodeSelector:
+    kubernetes.io/os: linux
+  tolerations:
+    - operator: Exists
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: kubernetes.io/arch
+                operator: In
+                values:
+                  - amd64
+                  - arm64

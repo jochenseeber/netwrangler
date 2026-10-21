@@ -1,0 +1,48 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "netwrangler.fullname" . }}
+  labels:
+    {{- include "netwrangler.labels" . | nindent 4 }}
+rules:
+  # Core resources
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["services/status"]
+    verbs: ["patch", "update"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+
+  # EndpointSlices for endpoint discovery
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
+
+  # Custom resources
+  - apiGroups: ["netwrangler.dev"]
+    resources: ["vipnetworks"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["netwrangler.dev"]
+    resources: ["vipconfigs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["netwrangler.dev"]
+    resources: ["vipaddresses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["netwrangler.dev"]
+    resources: ["viproutes"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["netwrangler.dev"]
+    resources: ["vipgateways"]
+    verbs: ["get", "list", "watch"]
+  # Pods for VipGateway pod resolution
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+
+  # Events for debugging
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]

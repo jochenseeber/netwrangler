@@ -1,0 +1,59 @@
+[
+  {
+    "binding": "vip_address_controller",
+    "snapshots": {
+      "services": [
+        {
+          "filterResult": {
+            "name": "web-service",
+            "namespace": "default",
+            "uid": "service-uid-web",
+            "vip_addresses": ["10.0.1.10", "10.0.1.11"],
+            "network": "main-network"
+          }
+        },
+        {
+          "filterResult": {
+            "name": "api-service",
+            "namespace": "default",
+            "uid": "service-uid-api",
+            "vip_addresses": ["10.0.1.20", "10.0.1.21"],
+            "network": "main-network"
+          }
+        }
+      ],
+      "endpoint_slices": [
+        {
+          "filterResult": {
+            "name": "web-service-abc123",
+            "namespace": "default",
+            "service_name": "web-service",
+            "nodes": ["node-1", "node-1"]
+          }
+        },
+        {
+          "filterResult": {
+            "name": "api-service-def456",
+            "namespace": "default",
+            "service_name": "api-service",
+            "nodes": ["node-2", "node-2"]
+          }
+        }
+      ],
+      "vip_networks": [
+        {
+          "filterResult": {
+            "name": "main-network",
+            "uid": "network-uid-main",
+            "interface": "eth0",
+            "gateway_address": "10.0.1.1",
+            "network_address": "10.0.1.0",
+            "network_prefix": 24,
+            "route_table": null
+          }
+        }
+      ],
+      "vip_addresses": []
+    }
+  }
+]

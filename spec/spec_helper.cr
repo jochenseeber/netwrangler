@@ -1,0 +1,16 @@
+require "spec"
+require "json"
+require "log"
+require "socket"
+
+# Require individual modules instead of main entry point to avoid execution
+require "../src/version"
+require "../src/util/command"
+require "../src/util/binding_context"
+require "../src/agent/address_updater"
+require "../src/agent/nft_types"
+require "../src/agent/nftables_updater"
+require "../src/agent/gateway_policy"
+require "../src/agent/routes_updater"
+require "../src/agent/wireguard_updater"
+require "../src/agent/agent_hook"

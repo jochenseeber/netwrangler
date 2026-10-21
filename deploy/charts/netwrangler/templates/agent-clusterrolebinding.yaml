@@ -1,0 +1,17 @@
+{{- if .Values.agent.enabled -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "netwrangler.fullname" . }}-agent
+  labels:
+    {{- include "netwrangler.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "netwrangler.fullname" . }}-agent
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "netwrangler.agentServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
