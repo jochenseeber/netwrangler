@@ -1,0 +1,222 @@
+# Define versions
+ARG CRYSTAL_VERSION=1.21.0
+ARG SHELL_OPERATOR_VERSION=v1.14.2
+ARG GO_VERSION=1.24
+ARG ALPINE_VERSION=3.22.2
+# The nft releases from 1.1.2 on, the first with bitwise operations on two
+# registers, each as <nftables>:<libnftnl>. The libnftnl is the minimum the
+# release's configure.ac requires. The agent runs the highest unless
+# NETWRANGLER_NFT_VERSION selects another.
+ARG NFTABLES_BUILDS="1.1.2:1.2.9 1.1.3:1.2.9 1.1.4:1.3.0 1.1.5:1.3.0 1.1.6:1.3.1 1.1.7:1.3.2"
+ARG IPROUTE2_VERSION=6.19.0
+ARG WIREGUARD_TOOLS_VERSION=v1.0.20250521
+ARG IPUTILS_VERSION=20250605
+
+# Stage 1: Build nft and ip tools statically
+FROM alpine:${ALPINE_VERSION} AS nettools-builder
+
+ARG NFTABLES_BUILDS
+ARG IPROUTE2_VERSION
+ARG WIREGUARD_TOOLS_VERSION
+ARG IPUTILS_VERSION
+
+WORKDIR /src
+
+# Minimal build dependencies. bash is one: nftables generates a config.status
+# that busybox ash cannot parse, so its configure runs under CONFIG_SHELL.
+# bison regenerates nft's parser from the patched grammar.
+RUN apk add --no-cache \
+    bash \
+    bison \
+    build-base \
+    jansson-dev \
+    jansson-static \
+    libmnl-dev \
+    libmnl-static \
+    linux-headers \
+    patch \
+    pkgconf
+
+# Patches to nft, one directory per release (patches/nftables/<version>)
+COPY patches/nftables /src/patches/nftables
+
+# Build each nft statically against its own libnftnl, each libnftnl installed
+# under its own prefix (/opt/libnftnl/<version>) and built once even when
+# several nft releases share it. libnftnl comes not from apk: Alpine carries
+# neither these versions nor several at once. mini-gmp avoids a gmp
+# dependency.
+# Each nft lands in /output/nft-<version>, stripped, which takes it from about
+# 6 MB to 1.3 MB.
+# Since 1.1.6, nft records its version and build time in each table it creates
+# and warns when listing a table from a newer version, the build time deciding
+# between equal versions. A build time of 0 keeps a host's nft of the same
+# version from warning about the agent's table. 1.1.6 takes it from
+# MAKE_STAMP, 1.1.7 and later from SOURCE_DATE_EPOCH; older releases record
+# neither.
+# The patches in patches/nftables/<version> apply before configure, and a
+# release without that directory fails the build. The release tarballs ship a
+# generated parser, which is removed so that make builds it from the patched
+# grammar.
+RUN set -eu; \
+    for build in ${NFTABLES_BUILDS}; do \
+        nftables_version="${build%%:*}"; \
+        libnftnl_version="${build##*:}"; \
+        libnftnl_prefix="/opt/libnftnl/${libnftnl_version}"; \
+        if [ ! -d "${libnftnl_prefix}" ]; then \
+            wget --quiet "https://netfilter.org/projects/libnftnl/files/libnftnl-${libnftnl_version}.tar.xz"; \
+            tar --extract --xz --file="libnftnl-${libnftnl_version}.tar.xz"; \
+            ( \
+                cd "libnftnl-${libnftnl_version}"; \
+                ./configure \
+                    --prefix="${libnftnl_prefix}" \
+                    --disable-shared \
+                    --enable-static; \
+                make -j"$(nproc)"; \
+                make install \
+            ); \
+        fi; \
+        wget --quiet "https://netfilter.org/projects/nftables/files/nftables-${nftables_version}.tar.xz"; \
+        tar --extract --xz --file="nftables-${nftables_version}.tar.xz"; \
+        ( \
+            cd "nftables-${nftables_version}"; \
+            nft_patches="/src/patches/nftables/${nftables_version}"; \
+            [ -d "${nft_patches}" ] || { echo "No patches for nft ${nftables_version} in ${nft_patches}" >&2; exit 1; }; \
+            for nft_patch in "${nft_patches}"/*.patch; do \
+                patch --strip=1 --forward --no-backup-if-mismatch --input="${nft_patch}"; \
+            done; \
+            rm -f src/parser_bison.c src/parser_bison.h; \
+            PKG_CONFIG_PATH="${libnftnl_prefix}/lib/pkgconfig" \
+            SOURCE_DATE_EPOCH=0 \
+            CONFIG_SHELL=/bin/bash /bin/bash ./configure \
+                --prefix=/usr \
+                --disable-shared \
+                --enable-static \
+                --disable-python \
+                --disable-man-doc \
+                --with-mini-gmp \
+                --with-json \
+                --without-cli \
+                LDFLAGS="-static"; \
+            make -j"$(nproc)" LDFLAGS="-all-static" MAKE_STAMP=0 \
+        ); \
+        mkdir -p /output; \
+        cp "nftables-${nftables_version}/src/nft" "/output/nft-${nftables_version}"; \
+        strip "/output/nft-${nftables_version}"; \
+    done
+
+# Build iproute2 ip tool only (skip tc which requires bison)
+RUN wget --quiet https://mirrors.edge.kernel.org/pub/linux/utils/net/iproute2/iproute2-${IPROUTE2_VERSION}.tar.xz && \
+    tar --extract --xz --file=iproute2-${IPROUTE2_VERSION}.tar.xz && \
+    cd iproute2-${IPROUTE2_VERSION} && \
+    ./configure && \
+    make -j$(nproc) SUBDIRS="lib ip" LDFLAGS="-static"
+
+# Build iputils arping statically
+RUN apk add --no-cache meson ninja && \
+    wget --quiet https://github.com/iputils/iputils/archive/refs/tags/${IPUTILS_VERSION}.tar.gz && \
+    tar --extract --gzip --file=${IPUTILS_VERSION}.tar.gz && \
+    cd iputils-${IPUTILS_VERSION} && \
+    LDFLAGS="-static" meson setup build \
+        -Ddefault_library=static \
+        --prefer-static \
+        -Dc_link_args="-static" \
+        -DBUILD_ARPING=true \
+        -DBUILD_CLOCKDIFF=false \
+        -DBUILD_PING=false \
+        -DBUILD_TRACEPATH=false \
+        -DNO_SETCAP_OR_SUID=true \
+        -DUSE_CAP=false \
+        -DUSE_IDN=false \
+        -DUSE_GETTEXT=false \
+        -DBUILD_HTML_MANS=false \
+        -DBUILD_MANS=false && \
+    ninja -C build arping
+
+# Build wireguard-tools wg command statically
+RUN wget --quiet https://git.zx2c4.com/wireguard-tools/snapshot/wireguard-tools-${WIREGUARD_TOOLS_VERSION}.tar.xz && \
+    tar --extract --xz --file=wireguard-tools-${WIREGUARD_TOOLS_VERSION}.tar.xz && \
+    make -C wireguard-tools-${WIREGUARD_TOOLS_VERSION}/src -j$(nproc) LDFLAGS="-static"
+
+# Collect binaries and set file capabilities for non-root execution
+RUN apk add --no-cache libcap-utils && \
+    mkdir -p /output && \
+    cp iproute2-${IPROUTE2_VERSION}/ip/ip /output/ && \
+    cp wireguard-tools-${WIREGUARD_TOOLS_VERSION}/src/wg /output/ && \
+    cp iputils-${IPUTILS_VERSION}/build/arping /output/ && \
+    for nft in /output/nft-*; do setcap cap_net_admin,cap_net_raw+ep "${nft}"; done && \
+    setcap cap_net_admin,cap_net_raw+ep /output/ip && \
+    setcap cap_net_admin+ep /output/wg && \
+    setcap cap_net_raw+ep /output/arping
+
+# Stage 2: Build shell-operator statically
+FROM golang:${GO_VERSION}-alpine AS shell-operator-builder
+
+ARG SHELL_OPERATOR_VERSION
+
+WORKDIR /src
+
+# Install build dependencies
+RUN apk add --no-cache git gcc musl-dev libc-dev
+
+# Clone shell-operator source
+RUN git clone --depth=1 --branch=${SHELL_OPERATOR_VERSION} https://github.com/flant/shell-operator.git .
+
+# Download Go dependencies
+RUN go mod download
+
+# Build static binary
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w -extldflags '-static' -X 'github.com/flant/shell-operator/pkg/app.Version=${SHELL_OPERATOR_VERSION}'" \
+    -o /shell-operator \
+    ./cmd/shell-operator
+
+# Stage 3: Build Crystal application
+FROM 84codes/crystal:${CRYSTAL_VERSION}-alpine AS crystal-builder
+
+WORKDIR /app
+
+# Copy dependency files
+COPY shard.yml shard.lock* ./
+
+# Copy source code
+COPY . .
+
+# Build statically linked binary with musl-libc using shards
+RUN shards build netwrangler-agent --production --release --static --link-flags "-static"
+
+# Stage 4: Runtime image
+FROM busybox:1.37.0-uclibc
+
+# The licenses of everything in the image, as an SPDX expression; see
+# README.md (Bundled Software) and /usr/share/licenses
+LABEL org.opencontainers.image.licenses="MIT AND GPL-2.0-only AND GPL-2.0-or-later AND LGPL-2.1-only AND LGPL-2.1-or-later AND (LGPL-3.0-or-later OR GPL-2.0-or-later) AND Apache-2.0 AND Apache-2.0 WITH Swift-exception AND BSD-2-Clause AND BSD-3-Clause AND BSD-3-Clause WITH PCRE2-exception AND Boehm-GC AND ISC AND MPL-2.0"
+
+# Create non-root user
+RUN adduser --disabled-password --uid 1000 vip-agent
+
+# Create tmp directory for shell-operator
+RUN mkdir --parents /tmp/shell-operator
+
+# Copy shell-operator binary
+COPY --from=shell-operator-builder /shell-operator /shell-operator
+
+# Copy the static tools; each nft build is named nft-<version>
+COPY --from=nettools-builder /output/nft-* /usr/local/sbin/
+COPY --from=nettools-builder /output/ip /usr/local/sbin/ip
+COPY --from=nettools-builder /output/wg /usr/local/sbin/wg
+COPY --from=nettools-builder /output/arping /usr/local/sbin/arping
+
+# Copy the Crystal application binary
+COPY --from=crystal-builder /app/bin/netwrangler-agent /hooks/netwrangler-agent
+
+# License files of netwrangler and of everything the image bundles, from
+# licenses/ (`rake licenses:update`). The Crystal standard library needs none:
+# its runtime library exception waives attribution for code compiled into a
+# program.
+COPY LICENSE.txt /usr/share/licenses/netwrangler/LICENSE.txt
+COPY patches/LICENSE.txt /usr/share/licenses/netwrangler/patches/LICENSE.txt
+COPY licenses/ /usr/share/licenses/
+
+USER 1000
+
+ENTRYPOINT ["/shell-operator", "--hooks-dir", "hooks"]

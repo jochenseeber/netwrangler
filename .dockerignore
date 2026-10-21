@@ -1,0 +1,19 @@
+# An allowlist: the build context holds only what the Dockerfiles read, so no
+# local file, such as a generated .env.project, reaches a build stage
+*
+
+# Crystal sources and shard metadata (the crystal-builder stages copy the
+# whole context)
+!shard.yml
+!shard.lock
+!src
+
+# Patches applied to the bundled nft releases, and their license
+!patches
+
+# License files the images ship in /usr/share/licenses
+!LICENSE.txt
+!licenses
+
+# Finder metadata inside the allowed directories
+**/.DS_Store

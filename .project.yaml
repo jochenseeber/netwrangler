@@ -1,0 +1,33 @@
+project:
+  name: netwrangler
+  version: 1.0.0-dev
+crystal:
+  version: 1.21.0
+  components:
+    util:
+      virtual: true
+  profiles:
+    macosx:
+      debug:
+        - darwin-amd64-system-dynamic
+        - darwin-arm64-system-dynamic
+      release:
+        - darwin-amd64-system-static
+        - darwin-arm64-system-static
+    alpine:
+      common:
+        - linux-amd64-musl-static
+        - linux-arm64-musl-static
+    debian:
+      common:
+        - linux-amd64-glibc-dynamic
+        - linux-arm64-glibc-dynamic
+docker:
+  repository: jochen
+  platforms:
+    - linux/amd64
+    - linux/arm64
+kubernetes:
+  version: 1.36.1
+ruby:
+github:

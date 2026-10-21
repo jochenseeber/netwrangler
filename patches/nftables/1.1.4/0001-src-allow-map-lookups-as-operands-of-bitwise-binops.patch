@@ -1,0 +1,211 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jochen Seeber <jochen@seeber.me>
+Date: Thu, 22 Oct 2026 23:45:09 +0200
+Subject: [PATCH] src: allow map lookups as operands of bitwise binops
+
+Since Linux 6.13, the kernel performs AND, OR and XOR on two registers,
+and nft accepts variable right-hand operands such as:
+
+  ct mark set ct mark & 0xffff0000 | meta mark & 0xffff
+
+A map lookup could not be such an operand, though. Setting part of the
+packet mark from a map took a chain per map value, or a detour through
+the conntrack mark.
+
+Accept a map lookup enclosed in parentheses as operand of a binop in
+statement expressions, e.g.:
+
+  meta mark set meta mark & 0xffffff80 | (ip daddr . ip saddr map @m)
+
+The parentheses are required: without them, the existing grammar takes
+"meta mark & 0xffffff80 | ip daddr . ip saddr" as the map key.
+
+The evaluator flags map lookups as constant, so that statements use the
+map data as is. Clear the flag on binop operands, so that they take the
+register-to-register path, and keep the statement length, which map
+evaluation resets. List map operands in parentheses, so that the output
+parses back.
+
+The new grammar rule also admits a map lookup as concatenation
+component, which linearizes but cannot be listed. Reject it in the
+evaluator.
+
+In JSON, accept a map as right-hand binop operand in statement context
+and parse map key and data independently of the operand position.
+
+This requires Linux kernel >= 6.13.
+
+Signed-off-by: Jochen Seeber <jochen@seeber.me>
+---
+ doc/statements.txt |  7 +++++++
+ src/evaluate.c     | 26 +++++++++++++++++++++++---
+ src/expression.c   |  2 ++
+ src/parser_bison.y |  4 ++++
+ src/parser_json.c  | 15 ++++++++++++++-
+ 5 files changed, 50 insertions(+), 4 deletions(-)
+
+diff --git a/doc/statements.txt b/doc/statements.txt
+index 4aeb0a73..ee315a46 100644
+--- a/doc/statements.txt
++++ b/doc/statements.txt
+@@ -914,6 +914,9 @@ ____
+ The 'key' is a value returned by 'expression'.
+ // XXX: Write about where map statement can be used (list of statements?)
+ 
++Enclosed in parentheses, a map lookup can also be an operand of the binary
++operations *&*, *|* and *^*. This requires Linux kernel 6.13 or later.
++
+ .Using the map statement
+ ------------------------
+ # select DNAT target based on TCP dport:
+@@ -925,6 +928,10 @@ nft add rule ip nat prerouting dnat tcp dport map { 80 : 192.168.1.100, 8888 : 1
+ # packets from net 192.168.1.0/24 will appear as originating from 10.0.0.1,
+ # packets from net 192.168.2.0/24 will appear as originating from 10.0.0.2
+ nft add rule ip nat postrouting snat to ip saddr map { 192.168.1.0/24 : 10.0.0.1, 192.168.2.0/24 : 10.0.0.2 }
++
++# replace the lower 7 bits of the packet mark by the value mapped to the
++# destination and source address, keep the other bits
++nft add rule ip mangle output 'meta mark set meta mark and 0xffffff80 or (ip daddr . ip saddr map @marks)'
+ ------------------------
+ 
+ VMAP STATEMENT
+diff --git a/src/evaluate.c b/src/evaluate.c
+index 8f037601..dc55ec6b 100644
+--- a/src/evaluate.c
++++ b/src/evaluate.c
+@@ -1505,6 +1505,26 @@ static int expr_evaluate_bitwise(struct eval_ctx *ctx, struct expr **expr)
+ 	return 0;
+ }
+ 
++/*
++ * Map lookups are flagged constant so that statements use the map data as is.
++ * As a binop operand, a map lookup is a value only known at runtime.
++ */
++static int expr_evaluate_binop_operand(struct eval_ctx *ctx,
++				       struct expr **operand)
++{
++	uint32_t stmt_len = ctx->stmt_len;
++
++	if (expr_evaluate(ctx, operand) < 0)
++		return -1;
++
++	if ((*operand)->etype == EXPR_MAP) {
++		(*operand)->flags &= ~EXPR_F_CONSTANT;
++		ctx->stmt_len = stmt_len;
++	}
++
++	return 0;
++}
++
+ /*
+  * Binop expression: both sides must be of integer base type. The left-hand side
+  * may be either constant or non-constant; if it is constant, it must be a
+@@ -1526,7 +1546,7 @@ static int expr_evaluate_binop(struct eval_ctx *ctx, struct expr **expr)
+ 					 ctx->recursion.binop);
+ 	ctx->recursion.binop++;
+ 
+-	if (expr_evaluate(ctx, &op->left) < 0)
++	if (expr_evaluate_binop_operand(ctx, &op->left) < 0)
+ 		return -1;
+ 	left = op->left;
+ 
+@@ -1538,7 +1558,7 @@ static int expr_evaluate_binop(struct eval_ctx *ctx, struct expr **expr)
+ 				   left->byteorder, max_shift_len, 0);
+ 	}
+ 
+-	if (expr_evaluate(ctx, &op->right) < 0)
++	if (expr_evaluate_binop_operand(ctx, &op->right) < 0)
+ 		return -1;
+ 	right = op->right;
+ 
+@@ -1724,7 +1744,6 @@ static int expr_evaluate_concat(struct eval_ctx *ctx, struct expr **expr)
+ 		case EXPR_BINOP:
+ 		case EXPR_RELATIONAL:
+ 		case EXPR_CONCAT:
+-		case EXPR_MAP:
+ 		case EXPR_PAYLOAD:
+ 		case EXPR_EXTHDR:
+ 		case EXPR_META:
+@@ -1762,6 +1781,7 @@ static int expr_evaluate_concat(struct eval_ctx *ctx, struct expr **expr)
+ 		case EXPR_LIST:
+ 		case EXPR_SET:
+ 		case EXPR_SET_REF:
++		case EXPR_MAP:
+ 		case EXPR_MAPPING:
+ 		case EXPR_SET_ELEM_CATCHALL:
+ 		case EXPR_RANGE_SYMBOL:
+diff --git a/src/expression.c b/src/expression.c
+index 8cb63979..d438eae5 100644
+--- a/src/expression.c
++++ b/src/expression.c
+@@ -834,6 +834,8 @@ static void binop_arg_print(const struct expr *op, const struct expr *arg,
+ 	    expr_binop_precedence[op->op] != 0 &&
+ 	    expr_binop_precedence[op->op] < expr_binop_precedence[arg->op])
+ 		prec = 1;
++	else if (arg->etype == EXPR_MAP)
++		prec = 1;
+ 
+ 	if (prec)
+ 		nft_print(octx, "(");
+diff --git a/src/parser_bison.y b/src/parser_bison.y
+index 0b1ea699..7390ced0 100644
+--- a/src/parser_bison.y
++++ b/src/parser_bison.y
+@@ -3877,6 +3877,10 @@ primary_stmt_expr	:	symbol_expr			{ $$ = $1; }
+ 			|	fib_expr			{ $$ = $1; }
+ 			|	osf_expr			{ $$ = $1; }
+ 			|	'('	basic_stmt_expr	')'	{ $$ = $2; }
++			|	'('	concat_stmt_expr	MAP	map_stmt_expr_set	')'
++			{
++				$$ = map_expr_alloc(&@$, $2, $4);
++			}
+ 			;
+ 
+ shift_stmt_expr		:	primary_stmt_expr
+diff --git a/src/parser_json.c b/src/parser_json.c
+index 71e44f19..5622fea7 100644
+--- a/src/parser_json.c
++++ b/src/parser_json.c
+@@ -1506,20 +1506,33 @@ static struct expr *json_parse_set_expr(struct json_ctx *ctx,
+ static struct expr *json_parse_map_expr(struct json_ctx *ctx,
+ 					const char *type, json_t *root)
+ {
++	uint32_t old_flags = ctx->flags;
+ 	json_t *jkey, *jdata;
+ 	struct expr *key, *data;
+ 
++	/* on the RHS, a map is only valid as binop operand in a statement */
++	if (is_RHS(ctx) && !is_STMT(ctx)) {
++		json_error(ctx, "Expression type map not allowed in context (%s).",
++			   ctx_flags_to_string(ctx));
++		return NULL;
++	}
++
+ 	if (json_unpack_err(ctx, root, "{s:o, s:o}",
+ 			    "key", &jkey, "data", &jdata))
+ 		return NULL;
+ 
++	/* key and data do not depend on the map being a binop operand */
++	ctx->flags &= ~(CTX_F_PRIMARY | CTX_F_RHS);
++
+ 	key = json_parse_map_lhs_expr(ctx, jkey);
+ 	if (!key) {
+ 		json_error(ctx, "Illegal map expression key.");
++		ctx->flags = old_flags;
+ 		return NULL;
+ 	}
+ 
+ 	data = json_parse_rhs_expr(ctx, jdata);
++	ctx->flags = old_flags;
+ 	if (!data) {
+ 		json_error(ctx, "Illegal map expression data.");
+ 		expr_free(key);
+@@ -1625,7 +1638,7 @@ static struct expr *json_parse_expr(struct json_ctx *ctx, json_t *root)
+ 	} cb_tbl[] = {
+ 		{ "concat", json_parse_concat_expr, CTX_F_RHS | CTX_F_STMT | CTX_F_DTYPE | CTX_F_SET_RHS | CTX_F_SES | CTX_F_MAP },
+ 		{ "set", json_parse_set_expr, CTX_F_RHS | CTX_F_STMT }, /* allow this as stmt expr because that allows set references */
+-		{ "map", json_parse_map_expr, CTX_F_STMT | CTX_F_PRIMARY | CTX_F_SET_RHS },
++		{ "map", json_parse_map_expr, CTX_F_RHS | CTX_F_STMT | CTX_F_PRIMARY | CTX_F_SET_RHS },
+ 		/* below three are multiton_rhs_expr */
+ 		{ "prefix", json_parse_prefix_expr, CTX_F_RHS | CTX_F_SET_RHS | CTX_F_STMT | CTX_F_CONCAT },
+ 		{ "range", json_parse_range_expr, CTX_F_RHS | CTX_F_SET_RHS | CTX_F_STMT | CTX_F_CONCAT },

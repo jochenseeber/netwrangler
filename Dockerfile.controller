@@ -1,0 +1,76 @@
+# Define versions
+ARG CRYSTAL_VERSION=1.21.0
+ARG SHELL_OPERATOR_VERSION=v1.14.2
+ARG GO_VERSION=1.24
+ARG ALPINE_VERSION=3.22.2
+
+# Stage 1: Build shell-operator statically
+FROM golang:${GO_VERSION}-alpine AS shell-operator-builder
+
+ARG SHELL_OPERATOR_VERSION
+
+WORKDIR /src
+
+# Install build dependencies
+RUN apk add --no-cache git gcc musl-dev libc-dev
+
+# Clone shell-operator source
+RUN git clone --depth=1 --branch=${SHELL_OPERATOR_VERSION} https://github.com/flant/shell-operator.git .
+
+# Download Go dependencies
+RUN go mod download
+
+# Build static binary
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w -extldflags '-static' -X 'github.com/flant/shell-operator/pkg/app.Version=${SHELL_OPERATOR_VERSION}'" \
+    -o /shell-operator \
+    ./cmd/shell-operator
+
+# Stage 2: Build Crystal application
+FROM 84codes/crystal:${CRYSTAL_VERSION}-alpine AS crystal-builder
+
+WORKDIR /app
+
+# Copy dependency files
+COPY shard.yml shard.lock* ./
+
+# Copy source code
+COPY . .
+
+# Build statically linked binary with musl-libc using shards
+RUN shards build netwrangler-controller --production --release --static --link-flags "-static"
+
+# Stage 3: Runtime image
+FROM busybox:1.37.0-uclibc
+
+# The licenses of everything in the image, as an SPDX expression; see
+# README.md (Bundled Software) and /usr/share/licenses
+LABEL org.opencontainers.image.licenses="MIT AND GPL-2.0-only AND LGPL-2.1-only AND Apache-2.0 AND Apache-2.0 WITH Swift-exception AND BSD-2-Clause AND BSD-3-Clause AND BSD-3-Clause WITH PCRE2-exception AND Boehm-GC AND ISC AND MPL-2.0"
+
+# Create non-root user
+RUN adduser --disabled-password --uid 1000 vip-controller
+
+# Create tmp directory for shell-operator
+RUN mkdir --parents /tmp/shell-operator
+
+# Copy shell-operator binary
+COPY --from=shell-operator-builder /shell-operator /shell-operator
+
+# Copy the Crystal application binary
+COPY --from=crystal-builder /app/bin/netwrangler-controller /hooks/netwrangler-controller
+
+# License files of netwrangler and of everything the image bundles, from
+# licenses/ (`rake licenses:update`). The Crystal standard library needs none:
+# its runtime library exception waives attribution for code compiled into a
+# program.
+COPY LICENSE.txt /usr/share/licenses/netwrangler/LICENSE.txt
+COPY licenses/busybox/ /usr/share/licenses/busybox/
+COPY licenses/uclibc-ng/ /usr/share/licenses/uclibc-ng/
+COPY licenses/shell-operator/ /usr/share/licenses/shell-operator/
+COPY licenses/musl/ /usr/share/licenses/musl/
+COPY licenses/pcre2/ /usr/share/licenses/pcre2/
+COPY licenses/bdwgc/ /usr/share/licenses/bdwgc/
+
+USER 1000
+
+ENTRYPOINT ["/shell-operator", "--hooks-dir", "hooks"]

@@ -1,0 +1,26 @@
+{
+  "version": "0.2",
+  "language": "en",
+  "dictionaryDefinitions": [
+    {
+      "name": "project-dictionary",
+      "path": "./cspell.dict",
+      "addWords": true
+    }
+  ],
+  "dictionaries": [
+    "project-dictionary"
+  ],
+  "ignoreRegExpList": [
+    "/\\\\[a-zA-Z]/g"
+  ],
+  "ignorePaths": [
+    ".git",
+    "bin",
+    "dist",
+    "lib",
+    "node_modules",
+    "*.min.js",
+    "*.min.css"
+  ]
+}

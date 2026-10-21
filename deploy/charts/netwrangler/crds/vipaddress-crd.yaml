@@ -1,0 +1,153 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: vipaddresses.netwrangler.dev
+spec:
+  group: netwrangler.dev
+  names:
+    kind: VipAddress
+    listKind: VipAddressList
+    plural: vipaddresses
+    singular: vipaddress
+    shortNames:
+      - va
+  scope: Namespaced
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required:
+                - network
+                - nodeName
+                - virtualCIDR
+                - interface
+              properties:
+                network:
+                  type: string
+                  description: Name of the VipNetwork resource to use for network configuration
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Value is immutable
+                nodeName:
+                  type: string
+                  description: Name of the node where the virtual IP is assigned
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Value is immutable
+                virtualCIDR:
+                  type: string
+                  description: Virtual IP in CIDR notation (e.g., 10.0.1.10/24)
+                  pattern: '^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)/([0-9]|[12][0-9]|3[0-2])$'
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Value is immutable
+                interface:
+                  type: string
+                  description: Network interface name
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Value is immutable
+                gatewayIP:
+                  type: string
+                  description: Gateway address (optional)
+                  pattern: '^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Value is immutable
+                firewallMark:
+                  type: integer
+                  description: Firewall mark value allocated by the controller
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Value is immutable
+                routeTable:
+                  type: integer
+                  description: Route table ID allocated by the controller
+                  minimum: 1
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Value is immutable
+                routingPriority:
+                  type: integer
+                  description: Routing policy rule priority allocated by the controller
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Value is immutable
+                egressEnabled:
+                  type: boolean
+                  description: Whether egress marking is enabled for this IP (set by controller from service label)
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Value is immutable
+                endpointIPs:
+                  type: array
+                  description: Pod IP addresses reachable on this node for the service
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Value is immutable
+                  items:
+                    type: string
+                    pattern: '^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
+                sourceCIDRs:
+                  type: array
+                  description: Additional source networks in CIDR notation for verdict map entries
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Value is immutable
+                  items:
+                    type: string
+                    pattern: '^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)/([0-9]|[12][0-9]|3[0-2])$'
+                ports:
+                  type: array
+                  description: Service ports exposed on this virtual IP
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Value is immutable
+                  items:
+                    type: object
+                    required:
+                      - port
+                      - protocol
+                    properties:
+                      port:
+                        type: integer
+                        description: Port number
+                        minimum: 1
+                        maximum: 65535
+                      protocol:
+                        type: string
+                        description: Protocol (TCP, UDP, or SCTP)
+                        enum:
+                          - TCP
+                          - UDP
+                          - SCTP
+      additionalPrinterColumns:
+        - name: Network
+          type: string
+          description: VipNetwork reference
+          jsonPath: .spec.network
+        - name: Node
+          type: string
+          description: Node name
+          jsonPath: .spec.nodeName
+        - name: Virtual IP
+          type: string
+          description: Virtual IP address
+          jsonPath: .spec.virtualCIDR
+        - name: Table
+          type: integer
+          description: Route table ID
+          jsonPath: .spec.routeTable
+        - name: Priority
+          type: integer
+          description: Routing policy rule priority
+          jsonPath: .spec.routingPriority
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp

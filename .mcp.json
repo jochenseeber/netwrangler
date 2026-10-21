@@ -1,0 +1,11 @@
+{
+    "mcpServers": {
+        "kubernetes": {
+            "args": [
+                "dlx",
+                "kubernetes-mcp-server@latest"
+            ],
+            "command": "pnpm"
+        }
+    }
+}

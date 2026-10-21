@@ -1,0 +1,91 @@
+{
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
+  },
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "mcp__gemini",
+      "mcp__kubernetes__kubectl_describe",
+      "mcp__kubernetes__kubectl_get",
+      "mcp__kubernetes__kubectl_logs",
+      "mcp__plugin_context7_context7",
+      "WebFetch(domain:github.com)",
+      "Read(*)",
+      "Write(*)",
+      "Edit(*)",
+      "WebFetch(domain:auth.docker.io)",
+      "WebFetch(domain:rubygems.org)"
+    ],
+    "deny": []
+  },
+  "enabledPlugins": {
+    "claude-code-setup@claude-plugins-official": true,
+    "claude-md-management@claude-plugins-official": true,
+    "code-simplifier@claude-plugins-official": true,
+    "context7@claude-plugins-official": true,
+    "ralph-loop@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true
+  },
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true,
+    "autoAllowBashIfSandboxed": false,
+    "allowUnsandboxedCommands": false,
+    "network": {
+      "allowLocalBinding": true,
+      "allowedDomains": [
+        "codeload.github.com",
+        "files.pythonhosted.org",
+        "github.com",
+        "objects.githubusercontent.com",
+        "pypi.org",
+        "127.0.0.1",
+        "rubygems.org"
+      ],
+      "allowUnixSockets": [
+        "~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock",
+        "~/Library/Group Containers/2BUA8C4S2C.com.1password/t/s.sock"
+      ],
+      "allowAllUnixSockets": true,
+      "allowMachLookup": [
+        "2BUA8C4S2C.com.1password.*",
+        "com.1password.*"
+      ]
+    },
+    "filesystem": {
+      "allowWrite": [
+        "~/.cache/crystal",
+        "~/.cache/rubocop_cache",
+        "~/.cache/shards",
+        "~/.cache/uv",
+        "~/.local/share/uv"
+      ],
+      "denyRead": [
+        "~/"
+      ],
+      "allowRead": [
+        ".",
+        "~/.cache/crystal",
+        "~/.cache/rubocop_cache",
+        "~/.cache/shards",
+        "~/.cache/uv",
+        "~/.claude",
+        "~/.config/git",
+        "~/.config/op",
+        "~/.config/vsrun",
+        "~/.gitconfig",
+        "~/.gitignore_global",
+        "~/.local/bin",
+        "~/.local/share/uv",
+        "~/.rbenv",
+        "~/CLAUDE.md",
+        "~/Library/Caches/dprint",
+        "~/Library/Group Containers/2BUA8C4S2C.com.1password"
+      ]
+    },
+    "enableWeakerNetworkIsolation": true
+  }
+}
