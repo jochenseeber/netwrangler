@@ -1,0 +1,132 @@
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+controller:
+  replicaCount: 1
+  debug: false
+  logLevel: info
+  image:
+    repository: jochen/netwrangler-controller
+    pullPolicy: IfNotPresent
+    tag: ""
+  securityContext:
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 1000
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 10m
+      memory: 64Mi
+  nodeSelector:
+    kubernetes.io/os: linux
+    node-role.kubernetes.io/control-plane: ""
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: kubernetes.io/arch
+                operator: In
+                values:
+                  - amd64
+                  - arm64
+
+agent:
+  enabled: true
+  debug: false
+  # The agent's own account, bound to a ClusterRole that can only read the
+  # netwrangler resources
+  serviceAccount:
+    create: true
+    automount: true
+    annotations: {}
+    name: ""
+  # How often an external tool (nft, ip, wg, arping) is attempted before the
+  # agent gives up and stops the container so the kubelet restarts the pod.
+  retry:
+    count: 3
+    delaySeconds: 2
+  image:
+    repository: jochen/netwrangler-agent
+    pullPolicy: IfNotPresent
+    tag: ""
+  # Annotations on the agent pods only, added to `podAnnotations`. On
+  # Kubernetes 1.29, which lacks `appArmorProfile`, the AppArmor annotation
+  # goes here: the controller pod has no container named agent, and the API
+  # server rejects the annotation there.
+  podAnnotations: {}
+  securityContext:
+    # The image's node-tool runs the node's nft, ip, wg and arping inside the
+    # node's mount namespace and needs all five capabilities in the bounding
+    # set; it gives each tool only what that tool needs. The chart adds these
+    # five even when the values leave them out, so `--reuse-values` and a
+    # custom security context keep them.
+    #
+    # Do not set `allowPrivilegeEscalation: false`: it sets no_new_privs, which
+    # stops the file capabilities on node-tool, so no tool can run.
+    capabilities:
+      add:
+        # nft, ip and wg change addresses, routes, rules and nftables
+        - NET_ADMIN
+        # arping sends the gratuitous ARP through a raw socket
+        - NET_RAW
+        # setns into the node's mount namespace
+        - SYS_ADMIN
+        # setns into a mount namespace also takes CAP_SYS_CHROOT
+        - SYS_CHROOT
+        # read /proc/1/ns/mnt, which the kernel allows only with ptrace access
+        # to the node's init
+        - SYS_PTRACE
+      drop:
+        - ALL
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 1000
+    # containerd's default AppArmor profile allows ptrace only between
+    # processes under that same profile, so node-tool could not open the node
+    # init's mount namespace. Needs Kubernetes 1.30 or newer; on 1.29 set this
+    # to null and use the annotation in `agent.podAnnotations`, see
+    # https://github.com/jochenseeber/netwrangler/blob/main/docs/how-it-works.md#node-tools
+    appArmorProfile:
+      type: Unconfined
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 10m
+      memory: 64Mi
+  nodeSelector:
+    kubernetes.io/os: linux
+  tolerations:
+    - operator: Exists
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: kubernetes.io/arch
+                operator: In
+                values:
+                  - amd64
+                  - arm64

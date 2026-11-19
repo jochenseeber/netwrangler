@@ -1,0 +1,7 @@
+# Artifact Hub repository metadata
+# https://artifacthub.io/docs/topics/repositories/helm-charts/
+#
+repositoryID: TBD
+owners:
+  - name: Jochen Seeber
+    email: jochen@seeber.me

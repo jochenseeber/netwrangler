@@ -1,0 +1,56 @@
+# Pods that call out with a virtual IP as source address. The demo's server
+# container netwrangler-demo-server (10.89.1.100 on the Docker network
+# netwrangler-public) shows which address it sees.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: client
+  namespace: netwrangler-egress
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: client
+  template:
+    metadata:
+      labels:
+        app: client
+    spec:
+      # Run on worker nodes only. Drop this on a cluster whose control plane
+      # nodes run workloads.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+      containers:
+        - name: client
+          image: curlimages/curl:8.11.1
+          command: ["sleep", "infinity"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: client
+  namespace: netwrangler-egress
+  labels:
+    # Egress needs ingress: only an ingress-enabled Service gets virtual IPs,
+    # and egress rewrites the source address to one of them.
+    netwrangler.dev/ingress: enabled
+    # Marks outbound traffic of the pods behind this Service and rewrites its
+    # source address to the virtual IP of the node they run on. Traffic to a
+    # VipGateway destination is exempt (see ../gateway-routing). On a real
+    # cluster, only traffic to networks that the VipNetwork reaches through
+    # its gateway carries the virtual IP.
+    netwrangler.dev/egress: enabled
+spec:
+  type: ClusterIP
+  selector:
+    app: client
+  ports:
+    - port: 80
+      protocol: TCP
+  externalIPs:
+    - 10.89.1.201

@@ -1,0 +1,7 @@
+Globs:
+  - "**/*.cr"
+  - "!lib"
+
+Lint/SpecFilename:
+  Excluded:
+    - spec/controller/fixtures.cr

@@ -1,0 +1,15 @@
+{{- if .Values.agent.enabled -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "netwrangler.fullname" . }}-agent
+  labels:
+    {{- include "netwrangler.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+rules:
+  # The agent only reads the resources it reconciles node networking from;
+  # writes stay with the controller's account
+  - apiGroups: ["netwrangler.dev"]
+    resources: ["vipaddresses", "vipnetworks", "vipconfigs", "viproutes", "vipgateways"]
+    verbs: ["get", "list", "watch"]
+{{- end }}

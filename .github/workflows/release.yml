@@ -1,0 +1,102 @@
+---
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  # The tag check, the checks, the integration tests and the demo of the ci
+  # workflow, with the Crystal version in .project.yaml; nothing is published
+  # unless they pass
+  ci:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+    with:
+      integration: true
+
+  publish:
+    needs: ci
+    runs-on: ubuntu-latest
+    env:
+      # The docker facet runs docker with this configuration directory, so the
+      # Buildx builder and the registry login have to go there too. ORAS reads
+      # DOCKER_CONFIG as well.
+      DOCKER_CONFIG: ${{ github.workspace }}/.work/docker
+      REGISTRY: registry-1.docker.io
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ruby/setup-ruby@v1
+
+      - name: Create the Docker configuration directory
+        run: mkdir -p "$DOCKER_CONFIG"
+
+      - uses: docker/setup-qemu-action@v4
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: azure/setup-helm@v5
+        with:
+          version: "v4.3.2"
+
+      - uses: oras-project/setup-oras@v2
+
+      - uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log Helm and ORAS in to Docker Hub
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          printf '%s' "$DOCKERHUB_TOKEN" |
+            helm registry login "$REGISTRY" --username "$DOCKERHUB_USERNAME" --password-stdin
+          printf '%s' "$DOCKERHUB_TOKEN" |
+            oras login "$REGISTRY" --username "$DOCKERHUB_USERNAME" --password-stdin
+
+      - name: Push the images
+        run: rake docker:push
+
+      - name: Push the Helm chart
+        run: rake helm:push
+
+      - name: Push the Artifact Hub metadata
+        run: rake helm:push:metadata
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The section `rake changelog` wrote for this version: from its
+          # `## <version>` or `## [<version>](...)` heading to the next one
+          version="${GITHUB_REF_NAME#v}"
+          notes="$RUNNER_TEMP/release-notes.md"
+          if [[ -f CHANGELOG.md ]]; then
+            awk -v version="$version" '
+              /^## / {
+                if (found) exit
+                found = index($0, "## " version " ") == 1 || index($0, "## [" version "]") == 1
+                next
+              }
+              found { print }
+            ' CHANGELOG.md > "$notes"
+          fi
+
+          flags=(--verify-tag)
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            flags+=(--prerelease)
+          fi
+
+          if [[ -f "$notes" ]] && grep -q '[^[:space:]]' "$notes"; then
+            gh release create "$GITHUB_REF_NAME" "${flags[@]}" --notes-file "$notes"
+          else
+            gh release create "$GITHUB_REF_NAME" "${flags[@]}" --generate-notes
+          fi

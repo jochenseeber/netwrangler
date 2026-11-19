@@ -1,0 +1,22 @@
+# The one VipConfig the controller reads. Cluster-scoped; it must be named
+# "default". The mark, mask, table and priority bases are immutable once
+# created.
+apiVersion: netwrangler.dev/v1
+kind: VipConfig
+metadata:
+  name: default
+spec:
+  # Each virtual IP gets a mark from firewallMark upwards, a route table from
+  # routeTable upwards and a rule priority from routingPriority upwards.
+  firewallMark: 0x01
+  firewallMarkMask: 0x7F
+  routeTable: 20001
+  routingPriority: 20001
+  # The mask 0x7F has 7 bits, so at most 127 addresses fit: 2^7 - 1.
+  maxAddressCount: 127
+  # Traffic inside these networks is never marked. These are the pod and
+  # service networks of the kind cluster (deploy/kind-config.yaml). On a real
+  # cluster, list its pod and service networks.
+  clusterCIDRs:
+    - 10.244.0.0/16
+    - 10.194.0.0/16

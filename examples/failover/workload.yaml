@@ -1,0 +1,69 @@
+# Three replicas on different nodes, one virtual IP each. When a node or its
+# pod stops being ready, the controller moves the address to a node that still
+# has a ready endpoint.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: whoami
+  namespace: netwrangler-failover
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: whoami
+  template:
+    metadata:
+      labels:
+        app: whoami
+    spec:
+      # Run on worker nodes only. Drop this on a cluster whose control plane
+      # nodes run workloads.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+      # One pod per node, so each node can hold an address.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: whoami
+      containers:
+        - name: whoami
+          image: traefik/whoami:v1.10.3
+          ports:
+            - containerPort: 80
+          # Only pods that pass this check count as ready endpoints. The
+          # controller places addresses by readiness.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            periodSeconds: 2
+            failureThreshold: 2
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: whoami
+  namespace: netwrangler-failover
+  labels:
+    netwrangler.dev/ingress: enabled
+spec:
+  type: ClusterIP
+  selector:
+    app: whoami
+  ports:
+    - port: 80
+      protocol: TCP
+  # The controller spreads these across nodes in proportion to their ready
+  # endpoints and rebalances when readiness changes.
+  externalIPs:
+    - 10.89.1.210
+    - 10.89.1.211
+    - 10.89.1.212

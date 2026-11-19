@@ -1,0 +1,25 @@
+# Networks of virtual IPs. Cluster-scoped. An externalIP of a Service joins the
+# VipNetwork whose networkCIDR contains it. Networks must not overlap. On a
+# real cluster, name the interfaces and networks of your nodes.
+apiVersion: netwrangler.dev/v1
+kind: VipNetwork
+metadata:
+  name: public
+spec:
+  # Node interface that carries the virtual IPs. It must exist and be up on
+  # the nodes that hold them. In the demo it is the second interface of each
+  # kind node, on the Docker network netwrangler-public.
+  interface: eth1
+  # Next hop for replies sent from a virtual IP.
+  gatewayIP: 10.89.1.1
+  networkCIDR: 10.89.1.0/24
+---
+apiVersion: netwrangler.dev/v1
+kind: VipNetwork
+metadata:
+  name: private
+spec:
+  # The third interface of each kind node, on netwrangler-private.
+  interface: eth2
+  gatewayIP: 10.89.2.1
+  networkCIDR: 10.89.2.0/24

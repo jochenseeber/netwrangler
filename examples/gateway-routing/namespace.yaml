@@ -1,0 +1,5 @@
+# The namespace of this example. Delete it to remove the example's workload.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: netwrangler-gateway-routing

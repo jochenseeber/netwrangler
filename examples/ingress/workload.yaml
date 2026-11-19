@@ -1,0 +1,51 @@
+# A web server that answers with its pod name and the client address.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: whoami
+  namespace: netwrangler-ingress
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: whoami
+  template:
+    metadata:
+      labels:
+        app: whoami
+    spec:
+      # Run on worker nodes only. Drop this on a cluster whose control plane
+      # nodes run workloads.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+      containers:
+        - name: whoami
+          image: traefik/whoami:v1.10.3
+          ports:
+            - containerPort: 80
+---
+# Reach the pods on 10.89.1.200 from outside the cluster.
+apiVersion: v1
+kind: Service
+metadata:
+  name: whoami
+  namespace: netwrangler-ingress
+  labels:
+    # Opts the Service in. The controller places each externalIP on a node
+    # with a ready endpoint and creates a VipAddress for it.
+    netwrangler.dev/ingress: enabled
+spec:
+  type: ClusterIP
+  selector:
+    app: whoami
+  ports:
+    - port: 80
+      protocol: TCP
+  # Must lie inside a VipNetwork's networkCIDR.
+  externalIPs:
+    - 10.89.1.200

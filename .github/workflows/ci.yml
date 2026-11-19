@@ -1,0 +1,156 @@
+---
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+    inputs:
+      crystal:
+        description: Crystal version for the unit tests and the images
+        type: choice
+        options:
+          - project
+          - latest
+        default: project
+  # The release workflow runs the checks and the integration tests through
+  # this workflow before it publishes anything
+  workflow_call:
+    inputs:
+      integration:
+        description: Run the integration tests and the demo
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      crystal: ${{ steps.installed.outputs.crystal }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # First, so a release from a wrong tag fails before the long jobs run
+      - name: Check that the tag names the project version
+        if: github.ref_type == 'tag'
+        run: |
+          version="$(yq '.project.version' .project.yaml)"
+          if [[ "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match version $version in .project.yaml"
+            exit 1
+          fi
+
+      # The weekly run builds with the newest Crystal release, so a release that
+      # breaks the build shows before the project moves to it
+      - name: Choose the Crystal version
+        id: project
+        env:
+          EVENT: ${{ github.event_name }}
+          REQUESTED: ${{ inputs.crystal }}
+        run: |
+          if [ "$EVENT" = schedule ] || [ "$REQUESTED" = latest ]; then
+            version=latest
+          else
+            version="$(yq '.crystal.version' .project.yaml)"
+          fi
+          echo "crystal=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: ${{ steps.project.outputs.crystal }}
+
+      - name: Report the installed Crystal version
+        id: installed
+        run: echo "crystal=$(crystal env CRYSTAL_VERSION)" >> "$GITHUB_OUTPUT"
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+
+      - uses: azure/setup-helm@v5
+        with:
+          version: "v4.3.2"
+
+      - name: Install the Crystal dependencies
+        run: rake deps
+
+      - name: Run the unit tests
+        run: rake spec
+
+      - name: Run the linters
+        run: rake lint
+
+      - name: Run RuboCop
+        run: bundle exec rubocop
+
+      - name: Lint the Helm chart
+        run: helm lint deploy/charts/netwrangler
+
+  integration:
+    needs: check
+    # A called workflow sees the caller's event, so a release asks for the job
+    # through its input
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      inputs.integration
+    runs-on: ubuntu-latest
+    env:
+      # The docker facet runs docker with this configuration directory, so the
+      # Buildx builder has to be created there too
+      DOCKER_CONFIG: ${{ github.workspace }}/.work/docker
+      # The integration tests need only the test group
+      BUNDLE_WITHOUT: development
+      # The Crystal version of the images' builder stage, the same as the check
+      # job's
+      CRYSTAL_VERSION: ${{ needs.check.outputs.crystal }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Read the Kubernetes version from .project.yaml
+        id: project
+        run: echo "kubernetes=$(yq '.kubernetes.version' .project.yaml)" >> "$GITHUB_OUTPUT"
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+
+      - name: Create the Docker configuration directory
+        run: mkdir -p "$DOCKER_CONFIG"
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: helm/kind-action@v1
+        with:
+          install_only: true
+          # kind v0.32.0 and later create clusters at Kubernetes 1.36
+          version: "v0.33.0"
+          kubectl_version: v${{ steps.project.outputs.kubernetes }}
+
+      - uses: helmfile/helmfile-action@v2
+        with:
+          helmfile-version: "v1.8.4"
+          helm-version: "v4.3.2"
+          # helmfile sync needs no plugin
+          helm-plugins: ""
+          helmfile-args: version
+
+      - name: Create the kind cluster
+        id: cluster
+        run: rake kind:start
+
+      - name: Run the integration tests
+        run: rake test
+
+      # Also after failed integration tests, since the demo checks the examples
+      # on its own
+      - name: Run the demo
+        if: ${{ !cancelled() && steps.cluster.outcome == 'success' }}
+        run: rake demo:deploy

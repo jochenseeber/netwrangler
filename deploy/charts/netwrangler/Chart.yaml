@@ -1,0 +1,13 @@
+apiVersion: v2
+name: netwrangler
+description: Controller for managing virtual IP assignments across Kubernetes nodes
+type: application
+version: 1.0.0-dev
+appVersion: 1.0.0-dev
+icon: https://raw.githubusercontent.com/jochenseeber/netwrangler/main/resources/Icon.png
+home: https://github.com/jochenseeber/netwrangler
+maintainers:
+  - name: Jochen Seeber
+    email: jochen@seeber.me
+annotations:
+  artifacthub.io/license: MIT

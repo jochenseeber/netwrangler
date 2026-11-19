@@ -1,0 +1,15 @@
+.DS_Store
+.env
+.playwright-mcp/
+.rspec_status
+.tmp/
+*.tmp
+*~
+/.shards/
+/.work/
+/bin/
+/coverage/
+/dist/
+/lib/
+\#*\#
+tmp/

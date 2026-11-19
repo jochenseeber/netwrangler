@@ -1,0 +1,104 @@
+# Send traffic for 10.90.1.0/24 from every node through a gateway pod. The
+# VipGateway is cluster-scoped; the pods live in the example namespace.
+apiVersion: netwrangler.dev/v1
+kind: VipGateway
+metadata:
+  name: demo-gateway
+spec:
+  # Must not overlap a node network or a VipConfig clusterCIDRs entry, or the
+  # agent refuses the gateway.
+  destinationCIDR: 10.90.1.0/24
+  # Route table and rule priority of the gateway. The table is immutable, must
+  # not be reserved (0, 253, 254, 255) and must differ from the tables of the
+  # virtual IPs. The priority must be below 32766.
+  routeTable: 200
+  routingPriority: 100
+  # Selects the gateway pods. The pods must also carry the label
+  # netwrangler.dev/gateway: enabled.
+  podSelector:
+    matchLabels:
+      app: demo-gateway
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-gateway
+  namespace: netwrangler-gateway-routing
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: demo-gateway
+  template:
+    metadata:
+      labels:
+        app: demo-gateway
+        # Makes the controller watch the pod. It creates a VipRoute for it
+        # once it runs and has a pod IP.
+        netwrangler.dev/gateway: enabled
+    spec:
+      # Run on worker nodes only. Drop this on a cluster whose control plane
+      # nodes run workloads.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+      initContainers:
+        # Gives the placeholder gateway an address inside the destination
+        # network, so a request to 10.90.1.1 reaches it. A real gateway
+        # forwards the packets instead. Adding an address needs NET_ADMIN; the
+        # address lives in the pod's network namespace and stays after this
+        # container exits.
+        - name: destination-address
+          image: busybox:1.37.0
+          command: ["ip", "addr", "add", "10.90.1.1/32", "dev", "eth0"]
+          securityContext:
+            capabilities:
+              add: ["NET_ADMIN"]
+      containers:
+        # Placeholder. A real gateway forwards packets to the destination, for
+        # example a NAT router or a VPN client. Here whoami answers on every
+        # address of the pod.
+        - name: gateway
+          image: traefik/whoami:v1.10.3
+          ports:
+            - containerPort: 80
+---
+# A pod that sends traffic to the destination. It stays off the gateway pod's
+# node, so its traffic takes the route through the gateway pod. Try it with
+# kubectl exec -n netwrangler-gateway-routing deploy/client -- curl http://10.90.1.1
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: client
+  namespace: netwrangler-gateway-routing
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: client
+  template:
+    metadata:
+      labels:
+        app: client
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app: demo-gateway
+      containers:
+        - name: client
+          image: curlimages/curl:8.11.1
+          command: ["sleep", "infinity"]

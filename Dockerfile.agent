@@ -1,0 +1,94 @@
+# Define versions
+ARG CRYSTAL_VERSION=1.21.0
+ARG SHELL_OPERATOR_VERSION=v1.14.2
+ARG GO_VERSION=1.24
+
+# Stage 1: Build shell-operator statically
+FROM golang:${GO_VERSION}-alpine AS shell-operator-builder
+
+ARG SHELL_OPERATOR_VERSION
+
+WORKDIR /src
+
+# Install build dependencies
+RUN apk add --no-cache git gcc musl-dev libc-dev
+
+# Clone shell-operator source
+RUN git clone --depth=1 --branch=${SHELL_OPERATOR_VERSION} https://github.com/flant/shell-operator.git .
+
+# Download Go dependencies
+RUN go mod download
+
+# Build static binary
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w -extldflags '-static' -X 'github.com/flant/shell-operator/pkg/app.Version=${SHELL_OPERATOR_VERSION}'" \
+    -o /shell-operator \
+    ./cmd/shell-operator
+
+# Stage 2: Build Crystal application
+FROM 84codes/crystal:${CRYSTAL_VERSION}-alpine AS crystal-builder
+
+WORKDIR /app
+
+# Copy dependency files
+COPY shard.yml shard.lock* ./
+
+# Copy source code
+COPY . .
+
+# Build statically linked binaries with musl-libc using shards. node-tool runs
+# the node's own nft, ip, wg and arping; it is stripped, and the file
+# capabilities are the union of what the four tools need, plus the two for
+# entering the node's mount namespace: cap_sys_ptrace opens
+# /hostfs/proc/1/ns/mnt, cap_sys_chroot with cap_sys_admin does the setns.
+# node-tool hands each tool only its own capabilities. Permitted only (=p):
+# node-tool makes them effective for the setns and drops them afterwards.
+# The assertions matter because a build or export that dropped xattrs would
+# leave the setcap call recorded but inert, and because a binary that is not
+# fully static would not run in the runtime image. node-tool is built without
+# a garbage collector (-Dgc_none): it allocates little before it execs or
+# exits, and the Boehm GC's marker threads, one per CPU, cost about 10 ms of
+# CPU on every call.
+RUN set -eux; \
+    apk add --no-cache libcap-utils binutils pax-utils; \
+    shards build netwrangler-agent --production --release --static --link-flags "-static"; \
+    shards build node-tool --production --release --static --link-flags "-static" -Dgc_none; \
+    [ -z "$(scanelf -qn bin/node-tool)" ]; \
+    strip bin/node-tool; \
+    setcap cap_net_admin,cap_net_raw,cap_sys_admin,cap_sys_chroot,cap_sys_ptrace=p bin/node-tool; \
+    [ "$(getcap bin/node-tool)" = "bin/node-tool cap_net_admin,cap_net_raw,cap_sys_chroot,cap_sys_ptrace,cap_sys_admin=p" ]
+
+# Stage 3: Runtime image
+FROM busybox:1.37.0-uclibc
+
+# The licenses of everything in the image, as an SPDX expression; see
+# docs/dependencies.md and /usr/share/licenses
+LABEL org.opencontainers.image.licenses="MIT AND GPL-2.0-only AND LGPL-2.1-only AND Apache-2.0 AND Apache-2.0 WITH Swift-exception AND BSD-2-Clause AND BSD-3-Clause AND BSD-3-Clause WITH PCRE2-exception AND Boehm-GC AND ISC AND MPL-2.0"
+
+# Create non-root user
+RUN adduser --disabled-password --uid 1000 vip-agent
+
+# Create tmp directory for shell-operator
+RUN mkdir --parents /tmp/shell-operator
+
+# Copy shell-operator binary
+COPY --from=shell-operator-builder /shell-operator /shell-operator
+
+# node-tool runs the node's nft, ip, wg and arping; the links are where the
+# agent looks, and node-tool takes the tool from the name it was called by.
+# /hostfs/proc is where the pod mounts the node's /proc.
+COPY --from=crystal-builder /app/bin/node-tool /usr/libexec/node-tool
+RUN mkdir -p /usr/local/sbin /hostfs/proc; \
+    for tool in ip wg arping nft; do ln -s /usr/libexec/node-tool "/usr/local/sbin/$tool"; done
+
+# Copy the Crystal application binary
+COPY --from=crystal-builder /app/bin/netwrangler-agent /hooks/netwrangler-agent
+
+# License files of netwrangler and of everything the image bundles, from
+# docs/licenses/ (`rake licenses:update`)
+COPY LICENSE.md /usr/share/licenses/netwrangler/LICENSE.md
+COPY docs/licenses/ /usr/share/licenses/
+
+USER 1000
+
+ENTRYPOINT ["/shell-operator", "--hooks-dir", "hooks"]

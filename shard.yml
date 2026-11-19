@@ -1,0 +1,27 @@
+name: netwrangler
+version: 1.0.0-dev
+
+authors:
+  - Jochen Seeber <jochen@seeber.me>
+
+description: |
+  Virtual IP controller for shell-operator to update routing and nftables for virtual IPs
+
+crystal: ~> 1.21
+
+targets:
+  netwrangler-controller:
+    main: src/netwrangler_controller.cr
+
+  netwrangler-agent:
+    main: src/netwrangler_agent.cr
+
+  node-tool:
+    main: src/privileged_runner.cr
+
+development_dependencies:
+  ameba:
+    github: crystal-ameba/ameba
+    version: ~> 1.7.0
+
+license: MIT
