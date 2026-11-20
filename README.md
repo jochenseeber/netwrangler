@@ -86,7 +86,7 @@ Install the Helm chart from the OCI registry:
 ```sh
 helm install netwrangler \
   oci://registry-1.docker.io/jochen/netwrangler \
-  --version 1.0.0-dev \
+  --version 1.0.0 \
   --namespace netwrangler \
   --create-namespace
 ```
