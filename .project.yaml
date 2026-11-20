@@ -1,6 +1,6 @@
 project:
   name: netwrangler
-  version: 1.0.0-dev
+  version: 1.0.0
 crystal:
   version: 1.21.0
   components:
